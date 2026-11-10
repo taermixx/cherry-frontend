@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Cherry - Тест синхронизации (YouTube)</title>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; background-color: #1a1a1a; color: white; }
+        #player { margin: 20px auto; width: 640px; height: 360px; border: 3px dashed red; background-color: #333; }
+        button { padding: 10px 20px; font-size: 16px; margin: 5px; cursor: pointer; }
+        #status { color: #ff4d4d; font-weight: bold; margin-top: 20px; font-size: 18px; }
+    </style>
+</head>
+<body>
+    <h1>🍒 Cherry: Тест синхронизации</h1>
+    <div id="status">⏳ Подключение к серверу...</div>
+    
+    <div id="player"></div>
+    
+    <div>
+        <button onclick="playVideo()">▶ Play</button>
+        <button onclick="pauseVideo()">⏸ Pause</button>
+    </div>
+
+    <script>
+        const WS_URL = "wss://cherry-backend-t8tw.onrender.com/ws/room1"; 
+        let ws;
+        let player;
+        let isRemoteAction = false;
+
+        var tag = document.createElement('script');
+        tag.src = "https://www.youtube.com/iframe_api";
+        var firstScriptTag = document.getElementsByTagName('script')[0];
+        firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('player', {
+                height: '360',
+                width: '640',
+                videoId: 'e-VlSxoMrZU', // ← ВАШЕ ВИДЕО
+                // Если оно не работает, попробуйте один из вариантов ниже:
+                // videoId: 'jNQXAC9IVRw', // "Me at the zoo"
+                // videoId: '9bZkp7q19f0', // PSY - Gangnam Style
+                // videoId: 'kJQP7kiw5Fk', // Luis Fonsi - Despacito
+                events: {
+                    'onStateChange': onPlayerStateChange
+                }
+            });
+        }
+
+        function connectWebSocket() {
+            ws = new WebSocket(WS_URL);
+            
+            ws.onopen = () => {
+                document.getElementById('status').innerText = "✅ Подключено к серверу Cherry!";
+                document.getElementById('status').style.color = "lightgreen";
+            };
+
+            ws.onclose = () => {
+                document.getElementById('status').innerText = "❌ Отключено. Переподключение...";
+                document.getElementById('status').style.color = "red";
+                setTimeout(connectWebSocket, 3000); 
+            };
+
+            ws.onmessage = (event) => {
+                let data = JSON.parse(event.data);
+                if (!player || typeof player.getCurrentTime !== 'function') return; 
+                
+                isRemoteAction = true;
+                
+                if (Math.abs(player.getCurrentTime() - data.time) > 1.0) {
+                    player.seekTo(data.time, true);
+                }
+
+                if (data.action === 'play') {
+                    player.playVideo();
+                } else if (data.action === 'pause') {
+                    player.pauseVideo();
+                }
+
+                setTimeout(() => { isRemoteAction = false; }, 200);
+            };
+        }
+        
+        connectWebSocket();
+
+        function playVideo() {
+            if (player && player.playVideo) player.playVideo();
+        }
+
+        function pauseVideo() {
+            if (player && player.pauseVideo) player.pauseVideo();
+        }
+
+        function onPlayerStateChange(event) {
+            if (isRemoteAction || ws.readyState !== WebSocket.OPEN) return;
+            
+            let time = player.getCurrentTime();
+            
+            if (event.data == 1) { 
+                ws.send(JSON.stringify({ action: 'play', time: time }));
+            } else if (event.data == 2) { 
+                ws.send(JSON.stringify({ action: 'pause', time: time }));
+            }
+        }
+    </script>
+</body>
+</html>
